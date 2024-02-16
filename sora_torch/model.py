@@ -1,9 +1,68 @@
 import torch
 from einops import rearrange
 from torch import Tensor, nn
-from zeta.nn.attention import SpatialLinearAttention
+from zeta.nn.attention import SpatialLinearAttention, MultiQueryAttention
 from zeta.nn import FeedForward, video_to_text
+from einops.layers.torch import Rearrange
 
+class PatchEmbeddingLatentSpace(nn.Module):
+    """
+    PatchEmbeddingLatentSpace module for converting image patches into a latent space representation.
+
+    Args:
+        in_channels (int): Number of input channels.
+        patch_size (int): Size of each patch.
+        dim (int): Dimension of the latent space representation.
+        *args: Variable length argument list.
+        **kwargs: Arbitrary keyword arguments.
+
+    Attributes:
+        in_channels (int): Number of input channels.
+        patch_size (int): Size of each patch.
+        dim (int): Dimension of the latent space representation.
+        proj (nn.Sequential): Sequential module for projecting patches into the latent space.
+
+    """
+
+    def __init__(
+        self,
+        in_channels: int,
+        patch_size: int,
+        dim: int,
+        *args,
+        **kwargs
+    ):
+        super().__init__()
+        self.in_channels = in_channels
+        self.patch_size = patch_size
+        self.dim = dim
+        
+        self.proj = nn.Sequential(
+            Rearrange(
+                "b c (d pd) (h ph) (w pw) -> b (d h w) (pd ph pw c)",
+                pd=patch_size,
+                ph=patch_size,
+                pw=patch_size,
+            ),
+            nn.Linear(
+                patch_size ** 3 * in_channels, dim
+            )
+        )
+    
+    def forward(self, x: Tensor):
+        """
+        Forward pass of the PatchEmbeddingLatentSpace module.
+
+        Args:
+            x (Tensor): Input tensor.
+
+        Returns:
+            Tensor: Latent space representation of the input tensor.
+
+        """
+        x = self.proj(x)
+        
+        return x
 
 def patchify_videos(
     x: Tensor,
@@ -163,6 +222,22 @@ class VideoCompressionViT(nn.Module):
 
         # FeedForward
         self.ffn = FeedForward(dim, dim, mlp_dim, *args, **kwargs)
+        
+        
+        # Attn
+        self.attn = MultiQueryAttention(
+            dim,
+            heads,
+            # qk_ln=True,
+        )
+        
+        
+        # PatchEmbeddingLatentSpace
+        self.patch_embed = PatchEmbeddingLatentSpace(
+            channels,
+            num_patches,
+            dim
+        )
 
     def forward(self, x: Tensor):
         """VideoCompressionViT forward pass.
@@ -174,20 +249,21 @@ class VideoCompressionViT(nn.Module):
             Tensor: The output tensor.
         """
         b, c, t, h, w = x.shape
-        # x = patchify_videos(
-        #     x, (self.num_patches, self.num_patches, self.num_patches)
-        # )
+        
+        # Embed patches
+        # x = self.patch_embed(x)
+        
         # print(x.shape)
         # Attention-based inflation block
         x = self.model(x)
+        x, _ = self.attn(x, x, x)
 
         # FFN
-        x = video_to_text(x, self.num_patches, self.dim, True)
+        # x = video_to_text(x, self.num_patches, self.dim, True)
 
         # FeedForward
         x = self.ffn(x)
 
-        # Rearrange back to the original shape
         return x
 
 
