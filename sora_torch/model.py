@@ -1,9 +1,13 @@
 import torch
 from einops import rearrange
 from torch import Tensor, nn
-from zeta.nn.attention import SpatialLinearAttention, MultiQueryAttention
-from zeta.nn import FeedForward, video_to_text
+from zeta.nn.attention import (
+    SpatialLinearAttention,
+    MultiQueryAttention,
+)
+from zeta.nn import FeedForward
 from einops.layers.torch import Rearrange
+
 
 class PatchEmbeddingLatentSpace(nn.Module):
     """
@@ -30,13 +34,13 @@ class PatchEmbeddingLatentSpace(nn.Module):
         patch_size: int,
         dim: int,
         *args,
-        **kwargs
+        **kwargs,
     ):
         super().__init__()
         self.in_channels = in_channels
         self.patch_size = patch_size
         self.dim = dim
-        
+
         self.proj = nn.Sequential(
             Rearrange(
                 "b c (d pd) (h ph) (w pw) -> b (d h w) (pd ph pw c)",
@@ -44,11 +48,9 @@ class PatchEmbeddingLatentSpace(nn.Module):
                 ph=patch_size,
                 pw=patch_size,
             ),
-            nn.Linear(
-                patch_size ** 3 * in_channels, dim
-            )
+            nn.Linear(patch_size**3 * in_channels, dim),
         )
-    
+
     def forward(self, x: Tensor):
         """
         Forward pass of the PatchEmbeddingLatentSpace module.
@@ -61,8 +63,9 @@ class PatchEmbeddingLatentSpace(nn.Module):
 
         """
         x = self.proj(x)
-        
+
         return x
+
 
 def patchify_videos(
     x: Tensor,
@@ -222,21 +225,17 @@ class VideoCompressionViT(nn.Module):
 
         # FeedForward
         self.ffn = FeedForward(dim, dim, mlp_dim, *args, **kwargs)
-        
-        
+
         # Attn
         self.attn = MultiQueryAttention(
             dim,
             heads,
             # qk_ln=True,
         )
-        
-        
+
         # PatchEmbeddingLatentSpace
         self.patch_embed = PatchEmbeddingLatentSpace(
-            channels,
-            num_patches,
-            dim
+            channels, num_patches, dim
         )
 
     def forward(self, x: Tensor):
@@ -249,10 +248,10 @@ class VideoCompressionViT(nn.Module):
             Tensor: The output tensor.
         """
         b, c, t, h, w = x.shape
-        
+
         # Embed patches
         # x = self.patch_embed(x)
-        
+
         # print(x.shape)
         # Attention-based inflation block
         x = self.model(x)
